@@ -37,6 +37,7 @@
     * interface ListableBeanFactory 继承BeanFactory，获取bean数量，扫描bean name等
     * interface AutowiredCapableBeanFactory 继承BeanFactory，创建，销毁，注入，初始化(afterPropertiesSet,@PostConstruct) 前初始化(BeanPostProcessor.postProcessBeforeInitialization)，后初始化(BeanPostProcessor.postProcessAfterInitialization)
         * interface ConfigurableListableBeanFactory继承上述接口 实例化singletonBean，冻结bean配置，获取指定bean定义
+        * class DefaultListableBeanFactory
 
 
 * interface AliasRegistry 顶级接口，获取，设置，删除bean别名
@@ -92,8 +93,38 @@
             * class AbstractNameAutoProxyCreator 根据beanName创建代理
 
 # 6 spring-context
-
+* interface ApplicationEventPublisher 顶级接口，发布PayLoadApplicationEvent/ApplicationEvent
+* interface MessageSource 顶级接口获取国际化字符串
+    * interface ApplicationContext 继承上述接口以及ListableBeanFactory，HierarchicalBeanFactory，EnvironmentCapable
+        * interface ConfigurableApplicationContext 添加BeanFactoryPostProcessor，添加ApplicationListener，设置Environment，获取BeanFactory
+            * abstract class AbstractApplicationContext 持有parentApplicationContext，List<BeanFactoryPostProcessor>，Environment，List<ApplicationListener>
+            
+* interface LifeCycle
+* interface Phase
+    * interface SmartLifeCycle
+    
+* interface Validator 提供supports和validate方法。
+    * interface SmartValidator 提供提供指引的validate方法
+        * class SpringValidatorAdapter
+        
+* interface Error 提供获取boundRootObjectName方法，检测是否存在error，error数量，设置error，添加error等
+    interface BindingResult 获取targetBean
+    
 # 7 spring-tx
+@EnableTransactionManagement指定TransactionManagementConfigurationSelector选择ProxyTransactionManagementConfiguration或AspectJTransactionManagementConfiguration进行配置
+* interface SavepointManager 创建，释放，回滚至savepoint 
+    * interface TransactionStatus 事务状态，是否是一个新的事务，设置rollbackOnly，是否事务已完成，是否有回滚点
+    
+* interface PlatformTransactionManager 获取事务状态，提交，回滚
+
+* interface TransactionDefinition 方法对应@Transactional注解当中属性值
+    * interface TransactionAttribute 对指定异常是否回滚，指定TransactionManager
+        * class DefaultTransactionAttribute
+        
+* interface TransactionAttributeSource 获取TransactionAttribute
+    * class AnnotationTransactionAttributeSource
+    
+
 # 8 spring-web
 # 9 spring-webmvc
 
@@ -106,8 +137,8 @@
 * war发布
     * SpringServletContainerInitializer(spring-web模块) 继承ServletContainerInitializer被tomcat容器调用
     * 转调WebApplicationInitializer的实现类
-        * spring-web提供了 AbstractDispatcherServletInitializer AbstractAnnotationConfigDispatcherServletInitializer 抽象类供继承
-        * spring-boot提供了 SpringBootServletInitializer 抽象类供继承
+        * spring-web提供了 AbstractContextLoaderInitializer 抽象类供继承，注册ContextLoaderListener，通过ContextLoader带起容器
+        * spring-boot提供了 SpringBootServletInitializer 抽象类供继承，但不再通过ContextLoader带起容器
     * ApplicationContextInitializer ServletContextApplicationContextInitializer 将ServletContainerInitializer获取的servletContext放入applicationContext当中
 
 ---
@@ -123,6 +154,7 @@
 * registerListeners 注册ApplicationListener
 * finishBeanFactoryInitialization 实例化单例对象，主要一些beanPostProcessor发挥作用
     * AutowiredAnnotationBeanPostProcessor处理Autowired
+    * EnableTransactionManagement注解(选择proxy/aspectJ)->TransactionManagementConfigurationSelector根据proxy/aspectJ选择代理方式，proxy：ProxyTransactionManagementConfiguration
     * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)postProcessBeforeInstantiation实例化前检测是否直接创建代理bean(advisedBeans)，或者postProcessAfterInitialization初始化后wrap目标source，生成代理
     * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)获取拦截器
     * SpringTransactionAnnotationParser解析@Transaction注解
