@@ -38,6 +38,8 @@
     * interface AutowiredCapableBeanFactory 继承BeanFactory，创建，销毁，注入，初始化(afterPropertiesSet,@PostConstruct) 前初始化(BeanPostProcessor.postProcessBeforeInitialization)，后初始化(BeanPostProcessor.postProcessAfterInitialization)
         * interface ConfigurableListableBeanFactory继承上述接口 实例化singletonBean，冻结bean配置，获取指定bean定义
         * class DefaultListableBeanFactory
+        
+* interface FactoryBean 在Autowired阶段会查找注入属性对应的FactoryBean，调用getObject方法进行依赖注入
 
 
 * interface AliasRegistry 顶级接口，获取，设置，删除bean别名
