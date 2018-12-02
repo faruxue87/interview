@@ -133,35 +133,86 @@
 
 ---
 
-# spring Web容器启动方式
-* 内嵌容器
-    * applicationContext的refresh阶段启动tomcat容器。applicationContext当中是否存在servletContext判断是否启动新的web容器。
-* war发布
-    * SpringServletContainerInitializer(spring-web模块) 继承ServletContainerInitializer被tomcat容器调用
-    * 转调WebApplicationInitializer的实现类
-        * spring-web提供了 AbstractContextLoaderInitializer 抽象类供继承，注册ContextLoaderListener，通过ContextLoader带起容器
-        * spring-boot提供了 SpringBootServletInitializer 抽象类供继承，但不再通过ContextLoader带起容器
-    * ApplicationContextInitializer ServletContextApplicationContextInitializer 将ServletContainerInitializer获取的servletContext放入applicationContext当中
+# ApplicationContext初始化流程
+## 实例化SpringApplication
+* 构造方法实例化
+    * 反射加载ApplicationContextInitializer
+    * 反射加载ApplicationListener
+* ServletContainerInitializer带起
+    * SpringServletContainerInitializer获取用户自定义的WebApplicationInitializer。SpringBoot提供了抽象类SpringBootServletInitializer
+      辅助用户实现WebApplicationInitializer。其中实现了onStartup的大部分逻辑。如果该类正好是Spring容器配置根，那么无需额外指定配置根(老版本
+      需要额外指定配置根)。
 
----
-
-
-# applicationContext初始化流程
-* postProcessBeanFactory 注册ServletContext容器内定义相关bean，扫描basePackages
-* invokeBeanFactoryPostProcessors 通过以下过程准备bean的定义，beanDefinitionNames，beanDefinitionMap
-    * ConfigurationClassPostProcessor.postProcessBeanFactory
-    * ConfigurationClassParser.doProcessConfigurationClass
-* registerBeanPostProcessors 依据上一步准备好的beanDefinition，找出beanPostProcessor，实例化，并注册
-* onRefresh 启动web容器
-* registerListeners 注册ApplicationListener
-* finishBeanFactoryInitialization 实例化单例对象，主要一些beanPostProcessor发挥作用
-    * AutowiredAnnotationBeanPostProcessor处理Autowired
-    * EnableTransactionManagement注解(选择proxy/aspectJ)->TransactionManagementConfigurationSelector根据proxy/aspectJ选择代理方式，proxy：ProxyTransactionManagementConfiguration
-    * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)postProcessBeforeInstantiation实例化前检测是否直接创建代理bean(advisedBeans)，或者postProcessAfterInitialization初始化后wrap目标source，生成代理
-    * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)获取拦截器
-    * SpringTransactionAnnotationParser解析@Transaction注解
-    * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator352)根据拦截器创建代理
-        * advisor:BeanFactoryTransactionAttributeSourceAdvisor
-        * pointCut:TransactionAttributeSourcePointcut
-        * advice:TransactionInterceptor
-* finishRefresh 清Resource缓存，publishEvent
+## SpringApplication.run()
+1. SpringApplication 加载SpringApplicationRunListeners EventPublishingRunListener，持有事件广播器SimpleApplicationEventMulticaster，将ApplicationListener传入SimpleApplicationEventMulticaster
+2. SpringApplication 启动SpringApplicationRunListeners EventPublishingRunListener，发布**ApplicationStartingEvent**
+3. SpringApplication 封装命令行参数ApplicationArguments
+4. SpringApplication 准备ConfigurableEnvironment
+    * 创建StandardServletEnvironment/StandardReactiveWebEnvironment/StandardEnvironment
+    * 配置ConfigurableEnvironment
+        * 配置命令行参数PropertySource
+        * 配置activeProfiles
+    * 向SpringApplicationRunListeners发布**ApplicationEnvironmentPreparedEvent**
+        * ConfigFileApplicationListener监听消费event，通过YamlPropertySourceLoader/PropertiesPropertySourceLoader解析配置文件
+    * 将Environment绑定至SpringApplication
+    * attach ConfigurationPropertySourcesPropertySource
+5. SpringApplication 实例化ApplicationContext：AnnotationConfigServletWebServerApplicationContext/AnnotationConfigReactiveWebServerApplicationContext/AnnotationConfigApplicationContext
+6. SpringApplication prepareContext
+    * 将Environment设置到ApplicationContext当中
+    * ApplicationContext实例化后处理：定制BeanNameGenerator，定制ResourceLoader
+    * 初始化ApplicationContext，参见步骤1加载ApplicationContextInitializer
+    * 发布**ApplicationContextInitializedEvent**事件
+    * 获取source配置Root(@SpringBootApplication)
+    * 将配置根注册到(BeanDefinitionRegistry)DefaultListableBeanFactory beanDefinitionMap
+    * 将ApplicationListener设置到ApplicationContext
+    * 发布**ApplicationPreparedEvent**事件
+7. SpringApplication refreshContext转调 AbstractApplicationContext.refresh()
+    * prepareRefresh
+        1. 清理ClassPathBeanDefinitionScanner缓存(注解配置下)
+        2. 添加Web容器相关的propertyResource
+        3. 校验必须的property属性
+    * prepareBeanFactory对DefaultListableBeanFactory关键属性进行初始化
+        1. setBeanClassLoader
+        2. setBeanExpressionResolver
+        3. addPropertyEditorRegistrar
+        4. addBeanPostProcessor：ApplicationContextAwareProcessor，ApplicationListenerDetector
+        5. ignoreDependencyInterface屏蔽Autowired类型
+        6. registerResolvableDependency定制化Autowired类型
+        7. registerSingleton手动注入一些singletonObject，如Environment
+    * postProcessBeanFactory 注册ServletContext容器内定义相关bean，扫描basePackages
+    * invokeBeanFactoryPostProcessors委托PostProcessorRegistrationDelegate通过以下过程准备bean的定义，beanDefinitionNames，beanDefinitionMap
+        1. 处理PriorityOrdered BeanDefinitionRegistryPostProcessors，即ConfigurationClassPostProcessor
+            * ConfigurationClassPostProcessor.processConfigBeanDefinitions(BeanDefinitionRegistry registry)找到Configuration注解类
+                * 批量解析Configuration注解类ConfigurationClassParser.parse(Set<BeanDefinitionHolder> configCandidates)
+                    * 解析类processConfigurationClass(ConfigurationClass configClass)
+                    * 具体解析类doProcessConfigurationClass(ConfigurationClass configClass, SourceClass sourceClass)，返回父类，递归至父类为null
+                    * 如果解析到ComponentScans，扫描出bean，递归processConfigurationClass(ConfigurationClass configClass)
+                * ConfigurationClassBeanDefinitionReader loadBeanDefinitions(Set<ConfigurationClass> configurationModel)
+                    * 迭代ConfigurationClass加载BeanDefinition：loadBeanDefinitionsForConfigurationClass
+                        * loadBeanDefinitionsFromImportedResources @Import(SomeConfiguration.class)
+                        * loadBeanDefinitionsFromRegistrars：@Import(ImportSelector.class)
+        2. 处理Ordered BeanDefinitionRegistryPostProcessors
+        3. 处理剩下的 BeanDefinitionRegistryPostProcessors
+        4. 处理BeanFactoryPostProcessors
+        5. BeanDefinition加载完毕之后，再次扫描BeanFactoryPostProcessor(用户定义的，被ComponentScan扫出来的BeanFactoryPostProcessor)继续执行
+    * registerBeanPostProcessors 委托PostProcessorRegistrationDelegate依据上一步准备好的beanDefinition，找出beanPostProcessor，实例化，并注册
+        1. 通过beanFactory.getBean(ppName, BeanPostProcessor.class)实例化BeanPostProcessor
+        2. 通过beanFactory.setBeanPostProcessor(BeanPostProcessor)排序后逐一添加
+    * initMessageSource初始化文本源(默认为空，国际化用)
+    * initApplicationEventMulticaster初始化事件广播器SimpleApplicationEventMulticaster并存入容器。与SpringApplicationRunListeners当中事件发布器类型一致，但不是同一个对象。
+    * onRefresh 启动web容器(默认TomcatStarter)
+    * registerListeners向容器当中的事件广播器SimpleApplicationEventMulticaster设置ApplicationListener，额外添加用户定义的ApplicationListener
+    * finishBeanFactoryInitialization 实例化剩下的非懒加载的单例对象，主要一些beanPostProcessor发挥作用
+        * AutowiredAnnotationBeanPostProcessor处理Autowired
+        * EnableTransactionManagement注解(选择proxy/aspectJ)->TransactionManagementConfigurationSelector根据proxy/aspectJ选择代理方式，proxy：ProxyTransactionManagementConfiguration
+        * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)postProcessBeforeInstantiation实例化前检测是否直接创建代理bean(advisedBeans)，或者postProcessAfterInitialization初始化后wrap目标source，生成代理
+        * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)获取拦截器
+        * SpringTransactionAnnotationParser解析@Transaction注解
+        * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator352)根据拦截器创建代理
+            * advisor:BeanFactoryTransactionAttributeSourceAdvisor
+            * pointCut:TransactionAttributeSourcePointcut
+            * advice:TransactionInterceptor
+    * finishRefresh 清Resource缓存，发布**ContextRefreshedEvent**
+8. SpringApplication 发布**ApplicationStartedEvent**事件
+9. SpringApplication call ApplicationRunner，call CommandLineRunner
+10. SpringApplication发布**ApplicationReadyEvent**事件
