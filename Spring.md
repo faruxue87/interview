@@ -195,7 +195,7 @@
         3. 处理剩下的 BeanDefinitionRegistryPostProcessors
         4. 处理BeanFactoryPostProcessors
         5. BeanDefinition加载完毕之后，再次扫描BeanFactoryPostProcessor(用户定义的，被ComponentScan扫出来的BeanFactoryPostProcessor)继续执行
-    * registerBeanPostProcessors 委托PostProcessorRegistrationDelegate依据上一步准备好的beanDefinition，找出beanPostProcessor，实例化，并注册
+    * registerBeanPostProcessors 委托PostProcessorRegistrationDelegate依据上一步准备好的BeanDefinition，找出BeanPostProcessor，实例化，并注册
         1. 通过beanFactory.getBean(ppName, BeanPostProcessor.class)实例化BeanPostProcessor
         2. 通过beanFactory.setBeanPostProcessor(BeanPostProcessor)排序后逐一添加
     * initMessageSource初始化文本源(默认为空，国际化用)
@@ -203,7 +203,19 @@
     * onRefresh 启动web容器(默认TomcatStarter)
     * registerListeners向容器当中的事件广播器SimpleApplicationEventMulticaster设置ApplicationListener，额外添加用户定义的ApplicationListener
     * finishBeanFactoryInitialization 实例化剩下的非懒加载的单例对象，主要一些beanPostProcessor发挥作用
-        * AutowiredAnnotationBeanPostProcessor处理Autowired
+        * AbstractBeanFactory.getBean(String name)
+            * AbstractAutowiredCapableBeanFactory.resolveBeforeInstantiation(String beanName, RootBeanDefinition mbd)
+                * AbstractAutoProxyCreator.postProcessBeforeInstantiation实例化前创建代理
+            * AbstractAutowireCapableBeanFactory.doCreateBean(final String beanName, final RootBeanDefinition mbd, final @Nullable Object[] args)
+                * AbstractAutowiredCapableBeanFactory.createBeanInstance实例化bean
+                * AbstractAutowiredCapableBeanFactory.populateBean填充bean
+                    * InstantiationAwareBeanPostProcessor.postProcessAfterInstantiation后实例化
+                    * InstantiationAwareBeanPostProcessor.postProcessProperties AutowiredAnnotationBeanPostProcessor依赖注入 CommonAnnotationBeanPostProcessor依赖注入
+                * AbstractAutowiredCapableBeanFactory.initializeBean
+                    * postProcessBeforeInitialization前初始化
+                    * afterPropertiesSet初始化
+                    * postProcessAfterInitialization后初始化
+                
         * EnableTransactionManagement注解(选择proxy/aspectJ)->TransactionManagementConfigurationSelector根据proxy/aspectJ选择代理方式，proxy：ProxyTransactionManagementConfiguration
         * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)postProcessBeforeInstantiation实例化前检测是否直接创建代理bean(advisedBeans)，或者postProcessAfterInitialization初始化后wrap目标source，生成代理
         * InfrastructureAdvisorAutoProxyCreator(AbstractAutoProxyCreator349)获取拦截器
@@ -212,7 +224,15 @@
             * advisor:BeanFactoryTransactionAttributeSourceAdvisor
             * pointCut:TransactionAttributeSourcePointcut
             * advice:TransactionInterceptor
-    * finishRefresh 清Resource缓存，发布**ContextRefreshedEvent**
+    * finishRefresh 
+        * 初始化LifeCycleProcessor
+        * LifeCycleProcessor.onRefresh开启startBeans
+        * 发布**ContextRefreshedEvent**
 8. SpringApplication 发布**ApplicationStartedEvent**事件
 9. SpringApplication call ApplicationRunner，call CommandLineRunner
 10. SpringApplication发布**ApplicationReadyEvent**事件
+
+@Configuration 配置Bean
+ImportBeanDefinitionRegistrar直接操作BeanDefinitionRegistry
+@Import == ImportSelector接口，加载配置Bean或者Registrar
+@ImportResource 加载Spring配置文件
